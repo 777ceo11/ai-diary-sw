@@ -114,12 +114,12 @@ export default function Home() {
       const scriptUrl = process.env.NEXT_PUBLIC_APPS_SCRIPT_URL;
       if (!scriptUrl) throw new Error("Apps Script URL이 구성되지 않았습니다.");
 
-      // 구글 앱스 스크립트로 데이터 전송
+      // 구글 앱스 스크립트로 데이터 전송 (ISO 형식으로 보내 정합성 유지)
       await fetch(scriptUrl, {
         method: "POST",
-        mode: "no-cors", // CORS 정책으로 인한 오류 방지를 위해 no-cors 사용
+        mode: "no-cors",
         body: JSON.stringify({
-          datetime: new Date().toLocaleString("ko-KR"),
+          datetime: new Date().toISOString(),
           diary: diaryContent
         }),
       });
@@ -138,6 +138,27 @@ export default function Home() {
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const formatDate = (dateInput: string) => {
+    const date = new Date(dateInput);
+    if (isNaN(date.getTime())) {
+      // 파싱 실패 시 원본 문자열 반환 (구형 데이터 대응)
+      return dateInput;
+    }
+    return date.toLocaleDateString("ko-KR", { 
+      year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' 
+    });
+  };
+
+  const formatTime = (dateInput: string) => {
+    const date = new Date(dateInput);
+    if (isNaN(date.getTime())) {
+      return "";
+    }
+    return date.toLocaleTimeString("ko-KR", { 
+      hour: '2-digit', minute: '2-digit' 
+    });
   };
 
   const dateStr = mounted 
@@ -363,14 +384,10 @@ export default function Home() {
                   >
                     <div className="flex justify-between items-center mb-1">
                       <span className="text-sm font-bold text-indigo-500">
-                        {new Date(entry.datetime).toLocaleDateString("ko-KR", { 
-                          year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' 
-                        })}
+                        {formatDate(entry.datetime)}
                       </span>
                       <span className="text-xs text-zinc-400">
-                        {new Date(entry.datetime).toLocaleTimeString("ko-KR", { 
-                          hour: '2-digit', minute: '2-digit' 
-                        })}
+                        {formatTime(entry.datetime)}
                       </span>
                     </div>
                     <p className="text-zinc-600 line-clamp-2 text-base group-hover:text-zinc-900 transition-colors">
