@@ -18,11 +18,52 @@ export default function Home() {
     { label: "평온", emoji: "😐", color: "text-gray-400" },
   ];
 
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [entries, setEntries] = useState<any[]>([]);
+  const [isLoadingEntries, setIsLoadingEntries] = useState(false);
+  const [displayDate, setDisplayDate] = useState<Date>(new Date());
+
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  const fetchEntries = async () => {
+    setIsLoadingEntries(true);
+    try {
+      const scriptUrl = process.env.NEXT_PUBLIC_APPS_SCRIPT_URL;
+      if (!scriptUrl) throw new Error("Apps Script URL이 구성되지 않았습니다.");
+
+      const response = await fetch(scriptUrl);
+      const data = await response.json();
+      setEntries(data);
+    } catch (error) {
+      console.error("Fetch failed:", error);
+      alert("목록을 가져오는 중 오류가 발생했습니다.");
+    } finally {
+      setIsLoadingEntries(false);
+    }
+  };
+
+  const handleOpenList = () => {
+    setIsModalOpen(true);
+    fetchEntries();
+  };
+
+  const handleSelectEntry = (entry: any) => {
+    // 날짜 구문 분석 (datetime 필드가 문자열이므로 날짜 객체로 변환 시도)
+    const selectedDate = new Date(entry.datetime);
+    if (!isNaN(selectedDate.getTime())) {
+      setDisplayDate(selectedDate);
+    }
+    
+    setDiaryContent(entry.diary);
+    setResult(null);
+    setTitle(null);
+    setSelectedSentiment(null);
+    setIsModalOpen(false);
+  };
 
   const handleAnalyze = async () => {
     if (!diaryContent.trim()) return;
@@ -53,41 +94,60 @@ export default function Home() {
     }
   };
 
+  const [isSaving, setIsSaving] = useState(false);
+
   const handleRestart = () => {
     if (confirm("정말 새로 작성하시겠습니까? 작성 중인 내용은 사라집니다.")) {
       setDiaryContent("");
       setResult(null);
       setTitle(null);
       setSelectedSentiment(null);
+      setDisplayDate(new Date()); // 오늘 날짜로 초기화
     }
   };
 
-  const handleSave = () => {
-    if (!diaryContent || !result) return;
+  const handleSave = async () => {
+    if (!diaryContent || isSaving) return;
     
-    const entry = {
-      title,
-      content: diaryContent,
-      result,
-      sentiment: sentiments[selectedSentiment!],
-      date: new Date().toISOString(),
-    };
-    
-    const existingEntries = JSON.parse(localStorage.getItem("ai-diary-entries") || "[]");
-    localStorage.setItem("ai-diary-entries", JSON.stringify([entry, ...existingEntries]));
-    
-    alert("일기가 안전하게 저장되었습니다!");
+    setIsSaving(true);
+    try {
+      const scriptUrl = process.env.NEXT_PUBLIC_APPS_SCRIPT_URL;
+      if (!scriptUrl) throw new Error("Apps Script URL이 구성되지 않았습니다.");
+
+      // 구글 앱스 스크립트로 데이터 전송
+      await fetch(scriptUrl, {
+        method: "POST",
+        mode: "no-cors", // CORS 정책으로 인한 오류 방지를 위해 no-cors 사용
+        body: JSON.stringify({
+          datetime: new Date().toLocaleString("ko-KR"),
+          diary: diaryContent
+        }),
+      });
+
+      alert("일기가 구글 시트에 안전하게 저장되었습니다!");
+      
+      // 초기 화면으로 돌아가기 (상태 초기화)
+      setDiaryContent("");
+      setResult(null);
+      setTitle(null);
+      setSelectedSentiment(null);
+      setDisplayDate(new Date());
+    } catch (error) {
+      console.error("Save failed:", error);
+      alert("저장 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const today = new Date();
   const dateStr = mounted 
-    ? today.toLocaleDateString("ko-KR", { month: "long", day: "numeric" })
+    ? displayDate.toLocaleDateString("ko-KR", { month: "long", day: "numeric" })
     : "";
   const dayStr = mounted 
-    ? today.toLocaleDateString("ko-KR", { weekday: "long" })
+    ? displayDate.toLocaleDateString("ko-KR", { weekday: "long" })
     : "";
   const timeStr = mounted 
-    ? today.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: true })
+    ? displayDate.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: true })
     : "";
 
   return (
@@ -105,7 +165,10 @@ export default function Home() {
               <span>{timeStr}</span>
             </div>
           </div>
-          <button className="flex items-center gap-2 px-4 py-2 bg-white rounded-full shadow-sm text-sm font-semibold text-[#5c67f2] border border-zinc-100 hover:bg-zinc-50 transition-all">
+          <button 
+            onClick={handleOpenList}
+            className="flex items-center gap-2 px-4 py-2 bg-white rounded-full shadow-sm text-sm font-semibold text-[#5c67f2] border border-zinc-100 hover:bg-zinc-50 transition-all active:scale-95"
+          >
             <svg
               xmlns="http://www.w3.org/2000/svg"
               width="18"
@@ -126,7 +189,9 @@ export default function Home() {
         </header>
 
         <div className="flex justify-between items-center">
-          <h2 className="text-xl font-bold text-zinc-800">오늘의 일기 회고</h2>
+          <h2 className="text-xl font-bold text-zinc-800">
+            {displayDate.toDateString() === new Date().toDateString() ? "오늘의 일기 회고" : "과거의 일기 확인"}
+          </h2>
         </div>
 
         {/* Diary Input Section */}
@@ -236,10 +301,20 @@ export default function Home() {
                 <div className="mt-8 pt-6 border-t border-indigo-100 flex gap-4">
                   <button 
                     onClick={handleSave}
-                    className="flex-1 flex items-center justify-center gap-2 py-4 bg-indigo-600 text-white rounded-2xl font-bold shadow-md hover:bg-indigo-700 transition-all active:scale-95"
+                    disabled={isSaving}
+                    className={`flex-1 flex items-center justify-center gap-2 py-4 bg-indigo-600 text-white rounded-2xl font-bold shadow-md transition-all active:scale-95 ${isSaving ? 'opacity-50 cursor-not-allowed' : 'hover:bg-indigo-700'}`}
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-                    일기 저장하기
+                    {isSaving ? (
+                      <div className="flex items-center gap-2">
+                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        저장 중...
+                      </div>
+                    ) : (
+                      <>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                        일기 저장하기
+                      </>
+                    )}
                   </button>
                   <button 
                     onClick={handleRestart}
@@ -254,6 +329,66 @@ export default function Home() {
           </div>
         )}
       </div>
+
+      {/* Diary List Modal */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[80vh] animate-in zoom-in-95 duration-300">
+            <div className="p-6 border-b border-zinc-100 flex justify-between items-center bg-indigo-50/30">
+              <h2 className="text-xl font-bold text-[#2d3a8c]">지난 일기 목록</h2>
+              <button 
+                onClick={() => setIsModalOpen(false)}
+                className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-zinc-100 transition-colors"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {isLoadingEntries ? (
+                <div className="py-12 flex flex-col items-center gap-4 text-zinc-400">
+                  <div className="w-8 h-8 border-4 border-indigo-100 border-t-indigo-500 rounded-full animate-spin" />
+                  <p className="font-medium">목록을 불러오고 있어요...</p>
+                </div>
+              ) : entries.length === 0 ? (
+                <div className="py-12 text-center text-zinc-400 font-medium">
+                  저장된 일기가 아직 없네요!
+                </div>
+              ) : (
+                entries.map((entry, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => handleSelectEntry(entry)}
+                    className="w-full p-5 text-left bg-zinc-50 rounded-3xl border border-transparent hover:border-indigo-200 hover:bg-white transition-all group"
+                  >
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-sm font-bold text-indigo-500">
+                        {new Date(entry.datetime).toLocaleDateString("ko-KR", { 
+                          year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' 
+                        })}
+                      </span>
+                      <span className="text-xs text-zinc-400">
+                        {new Date(entry.datetime).toLocaleTimeString("ko-KR", { 
+                          hour: '2-digit', minute: '2-digit' 
+                        })}
+                      </span>
+                    </div>
+                    <p className="text-zinc-600 line-clamp-2 text-base group-hover:text-zinc-900 transition-colors">
+                      {entry.diary}
+                    </p>
+                  </button>
+                ))
+              )}
+            </div>
+            
+            <div className="p-6 bg-zinc-50/50 border-t border-zinc-100">
+              <p className="text-xs text-center text-zinc-400">
+                목록에서 일기를 선택하면 상세 내용을 확인할 수 있습니다.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
